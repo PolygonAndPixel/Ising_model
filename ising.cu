@@ -26,8 +26,8 @@
 #define THREAD_TILE_WIDTH 4
 #define N_UPDATE (THREAD_TILE_WIDTH*THREAD_TILE_WIDTH/2)
 #define TEMPERATURE 3.0
-#define ITERATIONS 1000 // Iterations within a block
-#define OVERALL_ITERATIONS 1000 // Iterations of all blocks
+#define ITERATIONS 100 // Iterations within a block
+#define OVERALL_ITERATIONS 10 // Iterations of all blocks
 
 __device__ void shuffle_spins(float * register_spins, bool black)
 {
@@ -213,6 +213,16 @@ __global__ void isis(float * spins, int length, curandState* globalState)
     }
     
     // write back to spins
+    #pragma unroll
+    for(int y=0; y < THREAD_TILE_WIDTH; y++)
+    {
+        for(int x=-1; x < THREAD_TILE_WIDTH+1; x++)
+        {
+            int x_spin_idx = (idx_x_global + x)%length;
+            int y_spin_idx = (y + idx_y_global)%length * length;
+            spins[x_spin_idx + y_spin_idx] = register_spins[x + (y+1)*THREAD_TILE_WIDTH];
+        }
+    }
 }
 
 
@@ -250,7 +260,12 @@ int main (int argc, char * argv[])
     cudaMemcpy(Spins, spins, sizeof(float)*length*length, 
                cudaMemcpyDeviceToHost);                                     CUERR
     TIMERSTOP(H2D)
-    
+    printf("Using (%d, %d, %d) blocks and %d threads per block\n", 
+        gridDims[0], gridDims[1], gridDims[2], BLOCKSIZE);
+    printf("Iterating %d times over all blocks and %d times within a warp\n", 
+        OVERALL_ITERATIONS, ITERATIONS);
+    int n_updates = gridDims[0] * gridDims[1] * gridDims[2] * BLOCKSIZE * OVERALL_ITERATION * ITERATIONS;
+    printf("Overall %d updates\n", n_updates);
     TIMERSTART(calculating)
     for(int i=0; i<OVERALL_ITERATIONS; i++)
     {
