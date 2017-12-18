@@ -7,7 +7,7 @@
 #include "include/bitmap_IO.hpp"
 #include <iostream>
 
-#define BLOCKSIZE 1024
+#define BLOCKSIZE 256
 // Given n threads
 // Each spin needs 4 neighbours -> padding of 4*2*sqrt(n) for each side
 // e.g. n = 1024 threads
@@ -20,14 +20,14 @@
 // Register size: 256 KB / n = 64 floats for each thread
 // Each thread needs in checkerboard only 32 values where we divide
 // the grid within each block in tiles in ch
-#define BLOCKSQRT 32
+#define BLOCKSQRT 16
 
 #define REGISTER_SIZE 32
 #define THREAD_TILE_WIDTH 4
 #define N_UPDATE (THREAD_TILE_WIDTH*THREAD_TILE_WIDTH/2)
 #define TEMPERATURE 3.0
-#define ITERATIONS 100 // Iterations within a block
-#define OVERALL_ITERATIONS 10 // Iterations of all blocks
+#define ITERATIONS 1000 // Iterations within a block
+#define OVERALL_ITERATIONS 100 // Iterations of all blocks
 
 __device__ void shuffle_spins(float * register_spins, bool black)
 {
@@ -68,17 +68,16 @@ __device__ float generate(curandState* globalState, int ind)
 
 __global__ void initialise_curand_on_kernels(curandState * state, unsigned long seed)
 {
-    int idx = threadIdx.x + blockIdx.x*blockDim.x 
-                + threadIdx.y * blockDim.x 
-                + blockIdx.y * gridDim.x * blockDim.x;
+    int idx = threadIdx.x + threadIdx.y * blockDim.x;
     curand_init(seed, idx, 0, &state[idx]);
 }
 
 __device__ void update_spins(float * register_spins, bool black, curandState* globalState)
 {   
-    int idx = threadIdx.x + blockIdx.x*blockDim.x 
-                + threadIdx.y * blockDim.x 
-                + blockIdx.y * gridDim.x * blockDim.x;
+   // int idx = threadIdx.x + blockIdx.x*blockDim.x 
+   //             + threadIdx.y * blockDim.x 
+   //             + blockIdx.y * gridDim.x * blockDim.x;
+    int idx = threadIdx.x + threadIdx.y * blockDim.x;
     // Update first row
     #pragma unroll
     for(int col=0; col<THREAD_TILE_WIDTH/2; col++)
@@ -168,9 +167,9 @@ __device__ void update_spins(float * register_spins, bool black, curandState* gl
 
 __global__ void isis(float * spins, int length, curandState* globalState)
 {
-    // Each block processes twice as many values hence the 2
-    int idx_x_global = threadIdx.x + 2*blockDim.x * blockIdx.x;
-    int idx_y_global = threadIdx.y + 2*blockDim.y * blockIdx.y;
+    // Each block processes THREAD_TILE_WIDTH x THREAD_TILE_WIDTH as many values hence the THREAD_TILE_WIDTH
+    int idx_x_global = threadIdx.x * THREAD_TILE_WIDTH + THREAD_TILE_WIDTH*blockDim.x * blockIdx.x;
+    int idx_y_global = threadIdx.y * THREAD_TILE_WIDTH + THREAD_TILE_WIDTH*blockDim.y * blockIdx.y;
     
     float register_spins[REGISTER_SIZE];
     // TODO: Idea: Use a sliding window and ignore communication within a block alltogether
@@ -234,9 +233,9 @@ int main (int argc, char * argv[])
     //alocate space for each kernels curandState
     curandState* deviceStates;
     
-    int length = 4096;
+    int length = 1024;
     
-    cudaMalloc(&deviceStates, sizeof(curandState)*length/THREAD_TILE_WIDTH*BLOCKSIZE); CUERR
+    cudaMalloc(&deviceStates, sizeof(curandState)*BLOCKSIZE); CUERR
     float * spins = nullptr;
     cudaMallocHost(&spins, sizeof(float)*length*length);                  CUERR
     // Generate random spins
@@ -249,7 +248,10 @@ int main (int argc, char * argv[])
     float * Spins = nullptr;
     cudaMalloc(&Spins, sizeof(float)*length*length);                      CUERR
     // x-dimension should be 1 or else shuffle doesn't properly work.
-    dim3 gridDims(length/(THREAD_TILE_WIDTH * BLOCKSIZE), length/THREAD_TILE_WIDTH, 1);
+    int grid_x = length/(THREAD_TILE_WIDTH * BLOCKSIZE);
+    int grid_y = length/THREAD_TILE_WIDTH;
+    int grid_z = 1;
+    dim3 gridDims(grid_x, grid_y, grid_z);
     TIMERSTOP(preparing)
     TIMERSTART(init_curand)
     //call curand_init on each kernel with the same random seed
@@ -261,11 +263,14 @@ int main (int argc, char * argv[])
                cudaMemcpyDeviceToHost);                                     CUERR
     TIMERSTOP(H2D)
     printf("Using (%d, %d, %d) blocks and %d threads per block\n", 
-        gridDims[0], gridDims[1], gridDims[2], BLOCKSIZE);
+        grid_x, grid_y, grid_z, BLOCKSIZE);
     printf("Iterating %d times over all blocks and %d times within a warp\n", 
         OVERALL_ITERATIONS, ITERATIONS);
-    int n_updates = gridDims[0] * gridDims[1] * gridDims[2] * BLOCKSIZE * OVERALL_ITERATION * ITERATIONS;
-    printf("Overall %d updates\n", n_updates);
+    int n_updates = grid_x * grid_y * grid_z * BLOCKSIZE * OVERALL_ITERATIONS * ITERATIONS;
+    printf("Overall %d updates on a %d x %d grid\n", n_updates, length, length);
+    float used_memory = sizeof(float)*length*length + sizeof(curandState)*BLOCKSIZE;
+    used_memory /= (1024*1024);
+    printf("Using %f mByte data\n", used_memory);
     TIMERSTART(calculating)
     for(int i=0; i<OVERALL_ITERATIONS; i++)
     {
