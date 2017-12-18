@@ -26,12 +26,11 @@
 #define THREAD_TILE_WIDTH 4
 #define N_UPDATE (THREAD_TILE_WIDTH*THREAD_TILE_WIDTH/2)
 #define TEMPERATURE 3.0
-#define ITERATIONS 10000
-#define OVERALL_ITERATIONS 1000
+#define ITERATIONS 1000 // Iterations within a block
+#define OVERALL_ITERATIONS 1000 // Iterations of all blocks
 
 __device__ void shuffle_spins(float * register_spins, bool black)
 {
-    
     // Shuffle up right hand side
     #pragma unroll
     for(int i=0; i < THREAD_TILE_WIDTH; i+=2)
@@ -39,9 +38,9 @@ __device__ void shuffle_spins(float * register_spins, bool black)
         int to_shuffle = THREAD_TILE_WIDTH*2 + (i+black)*(THREAD_TILE_WIDTH+2);
         float new_pad = __shfl_up(register_spins[to_shuffle], 1);
         int shuffle_here = THREAD_TILE_WIDTH + (i+black)*(THREAD_TILE_WIDTH+2);
-        register_spins[shuffle_here] = new_pad;
+        if(threadIdx.x%32 != 0)
+            register_spins[shuffle_here] = new_pad;
     }
-    
     // Shuffle down left hand side
     bool black2 = !black;
     #pragma unroll
@@ -50,7 +49,8 @@ __device__ void shuffle_spins(float * register_spins, bool black)
         int to_shuffle = THREAD_TILE_WIDTH + 1 + (i+black2)*(THREAD_TILE_WIDTH+2);
         float new_pad = __shfl_down(register_spins[to_shuffle], 1);
         int shuffle_here = THREAD_TILE_WIDTH + (i+black2)*(THREAD_TILE_WIDTH+2);
-        register_spins[shuffle_here] = new_pad;
+        if(threadIdx.x%32 != 31)
+            register_spins[shuffle_here] = new_pad;
     }
 }
 
@@ -106,11 +106,9 @@ __device__ void update_spins(float * register_spins, bool black, curandState* gl
             if( p < expf(-TEMPERATURE*(energy_after - energy_before)))
             {
                 register_spins[i] *= (-1);
-            }
-            
+            }  
         }
     }
-        
     // Update intermediate
     for(int j=0; j<THREAD_TILE_WIDTH/2; j++)
     {
@@ -137,11 +135,9 @@ __device__ void update_spins(float * register_spins, bool black, curandState* gl
                 {
                     register_spins[i] *= (-1);
                 }
-                
             }
         }
     }
-    
     // Update bottom
     #pragma unroll
     for(int col=0; col<THREAD_TILE_WIDTH/2; col++)
@@ -177,6 +173,8 @@ __global__ void isis(float * spins, int length, curandState* globalState)
     int idx_y_global = threadIdx.y + 2*blockDim.y * blockIdx.y;
     
     float register_spins[REGISTER_SIZE];
+    // TODO: Idea: Use a sliding window and ignore communication within a block alltogether
+    
     // Load values to register. Each thread handles a tile of 4*4 values
     // with 4*4 padded values. Remember: Shuffle boundaries!
     #pragma unroll
@@ -210,21 +208,25 @@ __global__ void isis(float * spins, int length, curandState* globalState)
     for(int i=0; i < ITERATIONS; i++)
     {
         update_spins(register_spins, black, globalState);
-        shuffle_spins(register_spins, black);
+       // shuffle_spins(register_spins, black);
         black = !black;
     }
+    
+    // write back to spins
 }
 
 
 int main (int argc, char * argv[]) 
 {
+    cudaDeviceReset();
     TIMERSTART(preparing)
     srand(time(NULL));
     //alocate space for each kernels curandState
     curandState* deviceStates;
-    cudaMalloc(&deviceStates, 1*sizeof(curandState));                     CUERR
     
     int length = 4096;
+    
+    cudaMalloc(&deviceStates, sizeof(curandState)*length/THREAD_TILE_WIDTH*BLOCKSIZE); CUERR
     float * spins = nullptr;
     cudaMallocHost(&spins, sizeof(float)*length*length);                  CUERR
     // Generate random spins
@@ -233,19 +235,21 @@ int main (int argc, char * argv[])
         int r = (rand()%2)*2 - 1;
         spins[i] = r;
     }
-    
+
     float * Spins = nullptr;
     cudaMalloc(&Spins, sizeof(float)*length*length);                      CUERR
     // x-dimension should be 1 or else shuffle doesn't properly work.
     dim3 gridDims(length/(THREAD_TILE_WIDTH * BLOCKSIZE), length/THREAD_TILE_WIDTH, 1);
-    
+    TIMERSTOP(preparing)
+    TIMERSTART(init_curand)
     //call curand_init on each kernel with the same random seed
     //and init the rng states
     initialise_curand_on_kernels<<<gridDims, BLOCKSIZE>>>(deviceStates, unsigned(time(NULL))); CUERR
-    
+    TIMERSTOP(init_curand)
+    TIMERSTART(H2D)
     cudaMemcpy(Spins, spins, sizeof(float)*length*length, 
                cudaMemcpyDeviceToHost);                                     CUERR
-    TIMERSTOP(preparing)
+    TIMERSTOP(H2D)
     
     TIMERSTART(calculating)
     for(int i=0; i<OVERALL_ITERATIONS; i++)
@@ -258,11 +262,11 @@ int main (int argc, char * argv[])
     cudaMemcpy(spins, Spins, sizeof(float)*length*length,
                cudaMemcpyDeviceToHost);                                     CUERR
     TIMERSTOP(spins_D2H)
-    
+    TIMERSTART(dump_bmp)
     std::string image_name = "imgs/equilibrium.bmp";
     dump_bitmap(spins, length, length, image_name);
-    
+    TIMERSTOP(dump_bmp)
     cudaFreeHost(spins);                                                    CUERR
     cudaFree(Spins);                                                        CUERR
-    cudaFree(deviceStates);                                                     CUERR
+    cudaFree(deviceStates);                                                 CUERR
 }
