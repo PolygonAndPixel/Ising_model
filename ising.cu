@@ -26,8 +26,9 @@
 #define THREAD_TILE_WIDTH 4
 #define N_UPDATE (THREAD_TILE_WIDTH*THREAD_TILE_WIDTH/2)
 #define TEMPERATURE 3.0
-#define ITERATIONS 1000 // Iterations within a block
-#define OVERALL_ITERATIONS 100 // Iterations of all blocks
+#define ITERATIONS 1000 // Iterations within a window before moving on
+#define OVERALL_ITERATIONS 1000 // Iterations of all blocks
+#define SLIDING_ITERATIONS 32 // Sliding window within a block (left to right)
 
 __device__ void shuffle_spins(float * register_spins, bool black)
 {
@@ -166,61 +167,65 @@ __device__ void update_spins(float * register_spins, bool black, curandState* gl
 }
 
 __global__ void isis(float * spins, int length, curandState* globalState)
-{
-    // Each block processes THREAD_TILE_WIDTH x THREAD_TILE_WIDTH as many values hence the THREAD_TILE_WIDTH
-    int idx_x_global = threadIdx.x * THREAD_TILE_WIDTH + THREAD_TILE_WIDTH*blockDim.x * blockIdx.x;
-    int idx_y_global = threadIdx.y * THREAD_TILE_WIDTH + THREAD_TILE_WIDTH*blockDim.y * blockIdx.y;
-    
+{  
     float register_spins[REGISTER_SIZE];
-    // TODO: Idea: Use a sliding window and ignore communication within a block alltogether
+    // Use a sliding window 
+    for(int s=0; s < SLIDING_ITERATIONS; s++)
+    {
+        // Each block processes THREAD_TILE_WIDTH x THREAD_TILE_WIDTH as many values hence the THREAD_TILE_WIDTH
+        int idx_x_global = threadIdx.x * THREAD_TILE_WIDTH + THREAD_TILE_WIDTH*blockDim.x * blockIdx.x
+            +  THREAD_TILE_WIDTH/2 * s;
+        int idx_y_global = threadIdx.y * THREAD_TILE_WIDTH + THREAD_TILE_WIDTH*blockDim.y * blockIdx.y;
     
-    // Load values to register. Each thread handles a tile of 4*4 values
-    // with 4*4 padded values. Remember: Shuffle boundaries!
-    #pragma unroll
-    for(int x=0; x < THREAD_TILE_WIDTH; x++)
-    {
-        int x_spin_idx = (idx_x_global + x)%length;
-        int y_spin_idx = (idx_y_global - 1)%length * length;
-        register_spins[x] = spins[x_spin_idx + y_spin_idx];
-    }
-    #pragma unroll
-    for(int y=0; y < THREAD_TILE_WIDTH; y++)
-    {
-        for(int x=-1; x < THREAD_TILE_WIDTH+1; x++)
+        // Load values to register. Each thread handles a tile of 4*4 values
+        // with 4*4 padded values. Remember: Shuffle boundaries!
+        #pragma unroll
+        for(int x=0; x < THREAD_TILE_WIDTH; x++)
         {
             int x_spin_idx = (idx_x_global + x)%length;
-            int y_spin_idx = (y + idx_y_global)%length * length;
-            register_spins[x + (y+1)*THREAD_TILE_WIDTH] = spins[x_spin_idx + y_spin_idx];
+            int y_spin_idx = (idx_y_global - 1)%length * length;
+            register_spins[x] = spins[x_spin_idx + y_spin_idx];
         }
-    }
-    #pragma unroll
-    for(int x=0; x < THREAD_TILE_WIDTH; x++)
-    {
-        int x_spin_idx = (idx_x_global + x)%length;
-        int y_spin_idx = (idx_y_global + THREAD_TILE_WIDTH)%length * length;
-        register_spins[x] = spins[x_spin_idx + y_spin_idx];
-    }
-    
-    bool black = 0;
-    // Update the spins
-    #pragma unroll
-    for(int i=0; i < ITERATIONS; i++)
-    {
-        update_spins(register_spins, black, globalState);
-       // shuffle_spins(register_spins, black);
-        black = !black;
-    }
-    
-    // write back to spins
-    #pragma unroll
-    for(int y=0; y < THREAD_TILE_WIDTH; y++)
-    {
-        for(int x=-1; x < THREAD_TILE_WIDTH+1; x++)
+        #pragma unroll
+        for(int y=0; y < THREAD_TILE_WIDTH; y++)
+        {
+            for(int x=-1; x < THREAD_TILE_WIDTH+1; x++)
+            {
+                int x_spin_idx = (idx_x_global + x)%length;
+                int y_spin_idx = (y + idx_y_global)%length * length;
+                register_spins[x + (y+1)*THREAD_TILE_WIDTH] = spins[x_spin_idx + y_spin_idx];
+            }
+        }
+        #pragma unroll
+        for(int x=0; x < THREAD_TILE_WIDTH; x++)
         {
             int x_spin_idx = (idx_x_global + x)%length;
-            int y_spin_idx = (y + idx_y_global)%length * length;
-            spins[x_spin_idx + y_spin_idx] = register_spins[x + (y+1)*THREAD_TILE_WIDTH];
+            int y_spin_idx = (idx_y_global + THREAD_TILE_WIDTH)%length * length;
+            register_spins[x] = spins[x_spin_idx + y_spin_idx];
         }
+        
+        bool black = 0;
+        // Update the spins
+        #pragma unroll
+        for(int i=0; i < ITERATIONS; i++)
+        {
+            update_spins(register_spins, black, globalState);
+           // shuffle_spins(register_spins, black);
+            black = !black;
+        }
+        
+        // write back to spins
+        #pragma unroll
+        for(int y=0; y < THREAD_TILE_WIDTH; y++)
+        {
+            for(int x=-1; x < THREAD_TILE_WIDTH+1; x++)
+            {
+                int x_spin_idx = (idx_x_global + x)%length;
+                int y_spin_idx = (y + idx_y_global)%length * length;
+                spins[x_spin_idx + y_spin_idx] = register_spins[x + (y+1)*THREAD_TILE_WIDTH];
+            }
+        }
+        __syncthreads();
     }
 }
 
@@ -264,9 +269,9 @@ int main (int argc, char * argv[])
     TIMERSTOP(H2D)
     printf("Using (%d, %d, %d) blocks and %d threads per block\n", 
         grid_x, grid_y, grid_z, BLOCKSIZE);
-    printf("Iterating %d times over all blocks and %d times within a warp\n", 
-        OVERALL_ITERATIONS, ITERATIONS);
-    int n_updates = grid_x * grid_y * grid_z * BLOCKSIZE * OVERALL_ITERATIONS * ITERATIONS;
+    printf("Iterating %d times over all blocks and %d times within a window and %d times we slide a window\n", 
+        OVERALL_ITERATIONS, ITERATIONS, SLIDING_ITERATIONS);
+    int n_updates = grid_x * grid_y * grid_z * BLOCKSIZE * OVERALL_ITERATIONS * ITERATIONS * SLIDING_ITERATIONS;
     printf("Overall %d updates on a %d x %d grid\n", n_updates, length, length);
     float used_memory = sizeof(float)*length*length + sizeof(curandState)*BLOCKSIZE;
     used_memory /= (1024*1024);
