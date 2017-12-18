@@ -26,8 +26,8 @@
 #define THREAD_TILE_WIDTH 4
 #define N_UPDATE (THREAD_TILE_WIDTH*THREAD_TILE_WIDTH/2)
 #define TEMPERATURE 3.0
-#define ITERATIONS 1000 // Iterations within a window before moving on
-#define OVERALL_ITERATIONS 1000 // Iterations of all blocks
+#define ITERATIONS 100 // Iterations within a window before moving on
+#define OVERALL_ITERATIONS 32 // Iterations of all blocks
 #define SLIDING_ITERATIONS 32 // Sliding window within a block (left to right)
 
 __device__ void shuffle_spins(float * register_spins, bool black)
@@ -166,16 +166,17 @@ __device__ void update_spins(float * register_spins, bool black, curandState* gl
     }
 }
 
-__global__ void isis(float * spins, int length, curandState* globalState)
+__global__ void isis(float * spins, int length, curandState* globalState, int sy)
 {  
     float register_spins[REGISTER_SIZE];
     // Use a sliding window 
-    for(int s=0; s < SLIDING_ITERATIONS; s++)
+    for(int sx=0; sx < SLIDING_ITERATIONS; sx++)
     {
         // Each block processes THREAD_TILE_WIDTH x THREAD_TILE_WIDTH as many values hence the THREAD_TILE_WIDTH
         int idx_x_global = threadIdx.x * THREAD_TILE_WIDTH + THREAD_TILE_WIDTH*blockDim.x * blockIdx.x
-            +  THREAD_TILE_WIDTH/2 * s;
-        int idx_y_global = threadIdx.y * THREAD_TILE_WIDTH + THREAD_TILE_WIDTH*blockDim.y * blockIdx.y;
+            +  THREAD_TILE_WIDTH/2 * sx;
+        int idx_y_global = threadIdx.y * THREAD_TILE_WIDTH + THREAD_TILE_WIDTH*blockDim.y * blockIdx.y
+            +  THREAD_TILE_WIDTH/2 * sy;
     
         // Load values to register. Each thread handles a tile of 4*4 values
         // with 4*4 padded values. Remember: Shuffle boundaries!
@@ -271,15 +272,16 @@ int main (int argc, char * argv[])
         grid_x, grid_y, grid_z, BLOCKSIZE);
     printf("Iterating %d times over all blocks and %d times within a window and %d times we slide a window\n", 
         OVERALL_ITERATIONS, ITERATIONS, SLIDING_ITERATIONS);
-    int n_updates = grid_x * grid_y * grid_z * BLOCKSIZE * OVERALL_ITERATIONS * ITERATIONS * SLIDING_ITERATIONS;
-    printf("Overall %d updates on a %d x %d grid\n", n_updates, length, length);
+    unsigned long long n_updates = grid_x * grid_y * grid_z 
+        * BLOCKSIZE * OVERALL_ITERATIONS * ITERATIONS * SLIDING_ITERATIONS;
+    printf("Overall %llu updates on a %d x %d grid\n", n_updates, length, length);
     float used_memory = sizeof(float)*length*length + sizeof(curandState)*BLOCKSIZE;
     used_memory /= (1024*1024);
     printf("Using %f mByte data\n", used_memory);
     TIMERSTART(calculating)
     for(int i=0; i<OVERALL_ITERATIONS; i++)
     {
-        isis<<<gridDims, BLOCKSIZE>>>(Spins, length, deviceStates);         CUERR
+        isis<<<gridDims, BLOCKSIZE>>>(Spins, length, deviceStates, i);      CUERR
     }
     TIMERSTOP(calculating)
     
