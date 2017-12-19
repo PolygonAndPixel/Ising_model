@@ -7,7 +7,9 @@
 #include "include/bitmap_IO.hpp"
 #include <iostream>
 
-#define BLOCKSIZE 256
+#define LENGTH 4096 // 1024
+#define BLOCKSQRT 16
+#define BLOCKSIZE (BLOCKSQRT*BLOCKSQRT)
 // Given n threads
 // Each spin needs 4 neighbours -> padding of 4*2*sqrt(n) for each side
 // e.g. n = 1024 threads
@@ -20,15 +22,14 @@
 // Register size: 256 KB / n = 64 floats for each thread
 // Each thread needs in checkerboard only 32 values where we divide
 // the grid within each block in tiles in ch
-#define BLOCKSQRT 16
 
 #define REGISTER_SIZE 32
-#define THREAD_TILE_WIDTH 4
-#define N_UPDATE (THREAD_TILE_WIDTH*THREAD_TILE_WIDTH/2)
+#define THREAD_TILE_WIDTH 4 // Register size is 4*4 + padding (16 values)
 #define TEMPERATURE 3.0
 #define ITERATIONS 100 // Iterations within a window before moving on
-#define OVERALL_ITERATIONS 32 // Iterations of all blocks
-#define SLIDING_ITERATIONS 32 // Sliding window within a block (left to right)
+#define OVERALL_ITERATIONS 16 // ((LENGTH * 2 + THREAD_TILE_WIDTH - 1) / THREAD_TILE_WIDTH) // Iterations of all blocks
+#define SLIDING_ITERATIONS 16 // ((LENGTH * 2 + THREAD_TILE_WIDTH + 15) / (THREAD_TILE_WIDTH + 16)) // Sliding window within a block (left to right) for one circle
+// the stride of the windows is THREAD_TILE_WIDTH/2
 
 __device__ void shuffle_spins(float * register_spins, bool black)
 {
@@ -168,13 +169,16 @@ __device__ void update_spins(float * register_spins, bool black, curandState* gl
 
 __global__ void isis(float * spins, int length, curandState* globalState, int sy)
 {  
+ //   if(   threadIdx.x + blockIdx.x*blockDim.x 
+ //       + threadIdx.y * blockDim.x 
+ //       + blockIdx.y * gridDim.x * blockDim.x == 0) printf("%d\n", sy);
     float register_spins[REGISTER_SIZE];
     // Use a sliding window 
     for(int sx=0; sx < SLIDING_ITERATIONS; sx++)
     {
         // Each block processes THREAD_TILE_WIDTH x THREAD_TILE_WIDTH as many values hence the THREAD_TILE_WIDTH
         int idx_x_global = threadIdx.x * THREAD_TILE_WIDTH + THREAD_TILE_WIDTH*blockDim.x * blockIdx.x
-            +  THREAD_TILE_WIDTH/2 * sx;
+            +  THREAD_TILE_WIDTH/2 * 32 * sx;
         int idx_y_global = threadIdx.y * THREAD_TILE_WIDTH + THREAD_TILE_WIDTH*blockDim.y * blockIdx.y
             +  THREAD_TILE_WIDTH/2 * sy;
     
@@ -238,8 +242,8 @@ int main (int argc, char * argv[])
     srand(time(NULL));
     //alocate space for each kernels curandState
     curandState* deviceStates;
-    
-    int length = 1024;
+    // TODO: Make THREAD_TILE_WIDTH = length/BLOCKSIZE. Does it work? Must not be odd!
+    int length = LENGTH;
     
     cudaMalloc(&deviceStates, sizeof(curandState)*BLOCKSIZE); CUERR
     float * spins = nullptr;
@@ -266,15 +270,15 @@ int main (int argc, char * argv[])
     TIMERSTOP(init_curand)
     TIMERSTART(H2D)
     cudaMemcpy(Spins, spins, sizeof(float)*length*length, 
-               cudaMemcpyDeviceToHost);                                     CUERR
+               cudaMemcpyHostToDevice);                                     CUERR
     TIMERSTOP(H2D)
     printf("Using (%d, %d, %d) blocks and %d threads per block\n", 
         grid_x, grid_y, grid_z, BLOCKSIZE);
     printf("Iterating %d times over all blocks and %d times within a window and %d times we slide a window\n", 
         OVERALL_ITERATIONS, ITERATIONS, SLIDING_ITERATIONS);
-    unsigned long long n_updates = grid_x * grid_y * grid_z 
+    uint n_updates = grid_x * grid_y * grid_z 
         * BLOCKSIZE * OVERALL_ITERATIONS * ITERATIONS * SLIDING_ITERATIONS;
-    printf("Overall %llu updates on a %d x %d grid\n", n_updates, length, length);
+    printf("Overall %u updates on a %d x %d grid\n", n_updates, length, length);
     float used_memory = sizeof(float)*length*length + sizeof(curandState)*BLOCKSIZE;
     used_memory /= (1024*1024);
     printf("Using %f mByte data\n", used_memory);
@@ -282,7 +286,9 @@ int main (int argc, char * argv[])
     for(int i=0; i<OVERALL_ITERATIONS; i++)
     {
         isis<<<gridDims, BLOCKSIZE>>>(Spins, length, deviceStates, i);      CUERR
+        cudaDeviceSynchronize();                                            CUERR
     }
+//    printf("Finished\n");
     TIMERSTOP(calculating)
     
     TIMERSTART(spins_D2H)
