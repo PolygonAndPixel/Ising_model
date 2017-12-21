@@ -26,8 +26,8 @@
 #define REGISTER_SIZE 32
 #define THREAD_TILE_WIDTH 4 // Register size is 4*4 + padding (16 values)
 #define TEMPERATURE 3.0
-#define ITERATIONS 100 // Iterations within a window before moving on
-#define OVERALL_ITERATIONS 16 // ((LENGTH * 2 + THREAD_TILE_WIDTH - 1) / THREAD_TILE_WIDTH) // Iterations of all blocks
+#define ITERATIONS 4 // Iterations within a window before moving on 100
+#define OVERALL_ITERATIONS 128 // ((LENGTH * 2 + THREAD_TILE_WIDTH - 1) / THREAD_TILE_WIDTH) // Iterations of all blocks
 #define SLIDING_ITERATIONS 16 // ((LENGTH * 2 + THREAD_TILE_WIDTH + 15) / (THREAD_TILE_WIDTH + 16)) // Sliding window within a block (left to right) for one circle
 // the stride of the windows is THREAD_TILE_WIDTH/2
 
@@ -87,24 +87,27 @@ __device__ void update_spins(float * register_spins, bool black, curandState* gl
         int i = THREAD_TILE_WIDTH+1 + black + 2*col;
         // Check boundaries
         // up
-        float energy_before = register_spins[i-THREAD_TILE_WIDTH-1];
+        float energy = register_spins[i-THREAD_TILE_WIDTH-1];
         // down
-        energy_before += register_spins[i+THREAD_TILE_WIDTH+2];
+        energy += register_spins[i+THREAD_TILE_WIDTH+2];
         // left
-        energy_before += register_spins[i-1];
+        energy += register_spins[i-1];
         // right
-        energy_before += register_spins[i+1];
-        float energy_after = energy_before * (-1);
-        energy_before *= (-1) * register_spins[i];
+        energy += register_spins[i+1];
+        energy *= register_spins[i];
+        
+        
+      //  float energy_after = energy_before * (-1);
+      //  energy_before *= (-1) * register_spins[i];
         // energy_after was multiplied with (-1) before, hence again.
-        energy_after *= (-1) * register_spins[i];
-        if(energy_after < energy_before)
+       // energy_after *= (-1) * register_spins[i];
+        if(energy < 0)
         {
             register_spins[i] *= (-1);
         } else 
         {
             float p = generate(globalState, idx);
-            if( p < expf(-TEMPERATURE*(energy_after - energy_before)))
+            if(p < expf(-TEMPERATURE*2*energy))
             {
                 register_spins[i] *= (-1);
             }  
@@ -118,21 +121,23 @@ __device__ void update_spins(float * register_spins, bool black, curandState* gl
         {
             int i = 2*THREAD_TILE_WIDTH+3 + j*(THREAD_TILE_WIDTH+2) + 2*col + black;
             // Check boundaries
-            float energy_before = register_spins[i-THREAD_TILE_WIDTH-2];
-            energy_before += register_spins[i+THREAD_TILE_WIDTH+2];
-            energy_before += register_spins[i-1];
-            energy_before += register_spins[i+1];
-            float energy_after = energy_before * (-1);
-            energy_before *= (-1) * register_spins[i];
+            float energy = register_spins[i-THREAD_TILE_WIDTH-2];
+            energy += register_spins[i+THREAD_TILE_WIDTH+2];
+            energy += register_spins[i-1];
+            energy += register_spins[i+1];
+            energy *= register_spins[i];
+            
+           // float energy_after = energy_before * (-1);
+           // energy_before *= (-1) * register_spins[i];
             // energy_after was multiplied with (-1) before, hence again.
-            energy_after *= (-1) * register_spins[i];
-            if(energy_after < energy_before)
+           // energy_after *= (-1) * register_spins[i];
+            if(energy < 0)
             {
                 register_spins[i] *= (-1);
             } else 
             {
                 float p = generate(globalState, idx);
-                if( p < expf(-TEMPERATURE*(energy_after - energy_before)))
+                if( p < expf(-TEMPERATURE*2*energy))
                 {
                     register_spins[i] *= (-1);
                 }
@@ -145,21 +150,23 @@ __device__ void update_spins(float * register_spins, bool black, curandState* gl
     {
         int i = 2*THREAD_TILE_WIDTH+3 + THREAD_TILE_WIDTH/2*(THREAD_TILE_WIDTH+2) + 2*col + black;
         // Check boundaries
-        float energy_before = register_spins[i-THREAD_TILE_WIDTH-2];
-        energy_before += register_spins[i+THREAD_TILE_WIDTH+1];
-        energy_before += register_spins[i-1];
-        energy_before += register_spins[i+1];
-        float energy_after = energy_before * (-1);
-        energy_before *= (-1) * register_spins[i];
+        float energy = register_spins[i-THREAD_TILE_WIDTH-2];
+        energy += register_spins[i+THREAD_TILE_WIDTH+1];
+        energy += register_spins[i-1];
+        energy += register_spins[i+1];
+        energy *= register_spins[i];
+        
+        //float energy_after = energy_before * (-1);
+        //energy_before *= (-1) * register_spins[i];
         // energy_after was multiplied with (-1) before, hence again.
-        energy_after *= (-1) * register_spins[i];
-        if(energy_after < energy_before)
+        //energy_after *= (-1) * register_spins[i];
+        if(energy < 0)
         {
             register_spins[i] *= (-1);
         } else 
         {
             float p = generate(globalState, idx);
-            if( p < expf(-TEMPERATURE*(energy_after - energy_before)))
+            if( p < expf(-TEMPERATURE*2*energy))
             {
                 register_spins[i] *= (-1);
             }
@@ -277,7 +284,9 @@ int main (int argc, char * argv[])
     printf("Iterating %d times over all blocks and %d times within a window and %d times we slide a window\n", 
         OVERALL_ITERATIONS, ITERATIONS, SLIDING_ITERATIONS);
     uint n_updates = grid_x * grid_y * grid_z 
-        * BLOCKSIZE * OVERALL_ITERATIONS * ITERATIONS * SLIDING_ITERATIONS;
+        * BLOCKSIZE * OVERALL_ITERATIONS * ITERATIONS * SLIDING_ITERATIONS
+        * THREAD_TILE_WIDTH * THREAD_TILE_WIDTH / 4; // each thread updates in a
+                                                     // checkerboard way half of its registers.
     printf("Overall %u updates on a %d x %d grid\n", n_updates, length, length);
     float used_memory = sizeof(float)*length*length + sizeof(curandState)*BLOCKSIZE;
     used_memory /= (1024*1024);
@@ -288,7 +297,6 @@ int main (int argc, char * argv[])
         isis<<<gridDims, BLOCKSIZE>>>(Spins, length, deviceStates, i);      CUERR
         cudaDeviceSynchronize();                                            CUERR
     }
-//    printf("Finished\n");
     TIMERSTOP(calculating)
     
     TIMERSTART(spins_D2H)

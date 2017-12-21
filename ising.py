@@ -38,8 +38,8 @@ x, y = np.mgrid[range(n), range(n)]
 spins = np.random.randint(2, size=(n,n))*2 - 1
 
 ###############################BENCHMARK#######################################
-n = 4096
-d = 100 * 16 * 16 * 256
+n = 500
+d = 100 * 16 * 16 * 256 * 256
 # Generate a grid = coordinates of the beads
 x, y = np.mgrid[range(n), range(n)]
 
@@ -57,25 +57,28 @@ def update_spin():
         # 4 neighbours
         for row in range(2): 
             for col in range(2):
-                energy += spins[x_c][y_c] * spins[(x_c+row)%n][(y_c+col)%n]
-        energy *= -1
+                energy += spins[(x_c+row)%n][(y_c+col)%n]
+        energy *= spins[x_c][y_c] 
+ 
+
         # Flip and calculate new contribution
-        my_spin = spins[x_c][y_c] * (-1)
-        energy_after = 0
-        for row in range(2): 
-            for col in range(2):
-                energy_after += my_spin * spins[(x_c+row)%n][(y_c+col)%n]
-        energy_after *= -1
+       # my_spin = spins[x_c][y_c] * (-1)
+       # energy_after = 0
+       # for row in range(2): 
+       #     for col in range(2):
+       #         energy_after += my_spin * spins[(x_c+row)%n][(y_c+col)%n]
+       # energy_after *= -1
         # Energy less -> keep
-        if energy_after < energy:
+        if energy < 0:
             spins[x_c][y_c] *= (-1)
         # Energy more -> keep with prob exp(-beta(H_mu - H_nu))
         else:
-            p = np.random.uniform()
-            if p < np.exp(-temperature*(energy_after - energy)):
+            if np.random.uniform() < np.exp(-temperature*(energy*2)):
                 spins[x_c][y_c] *= (-1)
 elapsed_time = timeit.timeit(update_spin, number=1)
 print("Elapsed time: {}".format(elapsed_time))
+n_updates_per_time = d/elapsed_time
+print("Updates per seconds: {} (javascript manages about 1 million (half for animation)?)".format(n_updates_per_time))
 fig = plt.figure()
 ax = fig.add_subplot(111)
 title = ax.set_title("2D Ising Model at T={}, Grid_Size={}".format(temperature, n))

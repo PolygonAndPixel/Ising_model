@@ -1,5 +1,5 @@
 NVCC=nvcc
-NVCCFLAGS= -std=c++11 -D_FORCE_INLINES -arch=sm_50 -lineinfo -D_MWAITXINTRIN_H_INCLUDED -Xptxas -v
+NVCCFLAGS= -std=c++11 -D_FORCE_INLINES -arch=sm_50 -lineinfo -D_MWAITXINTRIN_H_INCLUDED # -Xptxas -v
 
 all: ising
 

@@ -26,14 +26,14 @@
         b##label = std::chrono::system_clock::now();                           \
         std::chrono::duration<double> delta##label = b##label-a##label;        \
         std::cout << "# elapsed time ("<< #label <<"): "                       \
-                  << delta##label.count()  << "s" << std::endl;
+                  << delta##label.count()  << "s" << std::endl;                
 #else
     #define TIMERSTOP(label)                                                   \
             cudaEventRecord(stop##label, 0);                                   \
             cudaEventSynchronize(stop##label);                                 \
             cudaEventElapsedTime(&time##label, start##label, stop##label);     \
             std::cout << "TIMING: " << time##label << " ms (" << #label << ")" \
-                      << std::endl;
+                      << std::endl;                                            
 #endif
 
 
