@@ -12,6 +12,10 @@ Usage:
     s: number of steps to simulate, e.g. 100000
     d: number of steps per step, e.g. 500 (speeds up visualization)
     t: temperature of the model
+    
+or
+    python ising.py filename
+  
 """
 from itertools import product
 import matplotlib.animation as animation
@@ -21,53 +25,43 @@ import numpy as np
 import sys
 import timeit
 
-print("Usage:\nNo argument: Create data for a plot")
+print("Usage:\n[filename]: Create data for a plot and save it in [filename]")
 print("[int] [int] [int] [float]: specify grid_size and number "
        "of steps to simulate and number of MC steps per step for an "
-       "animation and the temperature.")
+       "animation and the temperature.\n")
 def update_spin(beta, d, n):
-    for i in range(d):
+    for k in range(d):
         # Take random spin
         x_c, y_c = np.random.randint(n, size=(2))
         # Calculate contribution to the energy
         energy = 0 
         # 4 neighbours
-        for row in range(2): 
-            for col in range(2):
+        for row, col in product([-1, 0, 1], [-1, 0, 1]): 
+            if row != col and row != -col:
                 energy += spins[(x_c+row)%n][(y_c+col)%n]
         energy *= spins[x_c][y_c] 
- 
-
-        # Flip and calculate new contribution
-       # my_spin = spins[x_c][y_c] * (-1)
-       # energy_after = 0
-       # for row in range(2): 
-       #     for col in range(2):
-       #         energy_after += my_spin * spins[(x_c+row)%n][(y_c+col)%n]
-       # energy_after *= -1
         # Energy less -> keep
-        if energy < 0:
+        if energy <= 0:
             spins[x_c][y_c] *= (-1)
         # Energy more -> keep with prob exp(-beta(H_mu - H_nu))
         else:
             if np.random.uniform() < np.exp(-beta*(energy*2)):
-                spins[x_c][y_c] *= (-1)
+                spins[x_c][y_c] *= (-1) 
                 
-if len(sys.argv) == 1:
+if len(sys.argv) == 2:
 ###############################For Plots#######################################
-    n = 16
-    d = 8 * 4 * 256 * 256
-    d = 10000
+    n = 256
+    d = 1000000
     # Generate a grid = coordinates of the beads
     x, y = np.mgrid[range(n), range(n)]
-    filename = "py_model"
-    # Initialize spins 0 and 1 by random. 
-    spins = np.random.randint(2, size=(n,n))*2 - 1
+    print(np.shape(x))
+    filename = sys.argv[1]
+   
     print("Benchmark on a {} x {} grid with {} updates".format(n, n, d))
 
     with open(filename, 'w') as f:
         f.write("lattice_size\ttemperature\tenergy\tmagnetization\n")
-    delta_t = 0.1
+    delta_t = 0.5
     n_t = int(5.0/delta_t)
     for t in range(n_t):
         temperature = delta_t * (t+1)
@@ -76,8 +70,9 @@ if len(sys.argv) == 1:
         magnet = 0.0
         avg = 10
         for k in range(avg):
+            # Initialize spins 0 and 1 by random. 
+            spins = np.random.randint(2, size=(n,n))*2 - 1
             update_spin(beta, d, n)
-            
             global_energy += np.sum([[spins[i][j] * spins[neighbor1][neighbor2] 
                             for neighbor1, neighbor2 in 
                             [[(i-1)%n, j], [(i+1)%n, j], 
@@ -85,6 +80,7 @@ if len(sys.argv) == 1:
                             for i,j in 
                             list(product(range(n), range(n)))]) / (n*n*-2)
             magnet += np.abs(float(np.sum(spins)) / (n*n))
+            
         global_energy /= avg
         magnet /= avg
         with open(filename, 'a') as f:
@@ -106,6 +102,7 @@ if len(sys.argv) == 5:
               "and number of steps to simulate and number of MC steps per "
               "step for an animation and the temperature as float.")
         exit()
+    np.random.seed(241514)
     # Set MC values
     beta = 1.0/temperature # Play with this value
 
@@ -126,9 +123,7 @@ if len(sys.argv) == 5:
     ax.set_ylabel('Y')
 
     def update_spin_2(i):
-        """
-        
-        for i in range(d):
+        for k in range(d):
             # Take random spin
             x_c, y_c = np.random.randint(n, size=(2))
             # Calculate contribution to the energy
@@ -138,26 +133,8 @@ if len(sys.argv) == 5:
                 if row != col and row != -col:
                     energy += spins[(x_c+row)%n][(y_c+col)%n]
             energy *= spins[x_c][y_c] 
-            if energy <= 0:
-                spins[x_c][y_c] *= (-1)
-            # Energy more -> keep with prob exp(-beta(H_mu - H_nu))
-            else:
-                if np.random.uniform() < np.exp(-beta*(energy*2)):
-                    spins[x_c][y_c] *= (-1)
-                    
-       """
-        for k in range(d):
-            # Take random spin
-            x_c, y_c = np.random.randint(n, size=(2))
-            # Calculate contribution to the energy
-            energy = 0 
-            # 4 neighbours
-            for row in range(2): 
-                for col in range(2):
-                    energy += spins[(x_c+row)%n][(y_c+col)%n]
-            energy *= spins[x_c][y_c] 
             # Energy less -> keep
-            if energy < 0:
+            if energy <= 0:
                 spins[x_c][y_c] *= (-1)
             # Energy more -> keep with prob exp(-beta(H_mu - H_nu))
             else:

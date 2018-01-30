@@ -30,7 +30,7 @@ with open(sys.argv[1], "r") as f:
             temp = []
             mag = []
             energy = []
-#plt.legend()
+plt.legend()
 title = ax1.set_title("2D Ising Model - Energy")
 title = ax2.set_title("2D Ising Model - Magnetization")
 plt.show()
