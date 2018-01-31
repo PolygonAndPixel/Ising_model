@@ -8,7 +8,7 @@
 #include <iostream>
 #include <fstream>
 
-#define LENGTH 1<<14 // 4096, 1<<15 works too, 1024
+#define LENGTH 1<<10 // 4096, 1<<15 works too, 1024, goes down to 1<<4
 #define BLOCKSQRT 4
 #define BLOCKSIZE (BLOCKSQRT*BLOCKSQRT)
 // Given n threads
@@ -26,14 +26,16 @@
 
 #define REGISTER_SIZE 32
 #define THREAD_TILE_WIDTH 4 // Register size is 4*4 + padding (16 values)
-#define N_TEMPS 50 // The number of increases in temperature
+#define N_TEMPS 25 // The number of increases in temperature
 #define DELTA_T 0.1 // The amount of Kelvin to increase for every N_TEMPS
-#define RUNS 6 // Reduce the lattice size by half // 7
+#define RUNS 7 // Reduce the lattice size by half // 7
 #define ITERATIONS 4 // Iterations within a window before moving on 100
 #define OVERALL_ITERATIONS 64 // ((LENGTH * 2 + THREAD_TILE_WIDTH - 1) / THREAD_TILE_WIDTH) // Iterations of all blocks
 #define SLIDING_ITERATIONS 8 // ((LENGTH * 2 + THREAD_TILE_WIDTH + 15) / (THREAD_TILE_WIDTH + 16)) // Sliding window within a block (left to right) for one circle
 // the stride of the windows is THREAD_TILE_WIDTH/2
-#define RUNS_AVERAGE 10 // Runs to calculate the average (just to be sure)
+#define RUNS_AVERAGE 1 // Runs to calculate the average (just to be sure)
+#define DATA_PER_RUN 100 // Number of times where the current state should be flushed to disk
+#define RUNS_BEFORE_FLUSH 10 // Number of iterations between to flushes
 
 __device__ void shuffle_spins(float * register_spins, bool black)
 {
@@ -363,16 +365,21 @@ int main (int argc, char * argv[])
     used_memory /= (1024*1024);
     printf("Using %f mByte data\n", used_memory);
     
+    std::ofstream fs;
+    if(argc > 2)
+        fs.open(argc[2]);
+    else
+        fs.open("cuda_log");
+    fs << "lattice_size\ttemperature\tenergy\tmagnetization\n";
     for(int run=0; run<RUNS; run++)
     {
-        //length = LENGTH >> run;
-        length = LENGTH;
+        length = LENGTH >> run;
         
         for(int t=0; t<N_TEMPS; t++)
         {
             float energy = 0;
             float magnet = 0;
-            float temperature = DELTA_T * (t+1);
+            float temperature = DELTA_T * t + 1;
             float beta = 1.0/temperature;
             TIMERSTART(AVERAGES)
             for(int j=0; j<RUNS_AVERAGE; j++)
@@ -395,7 +402,7 @@ int main (int argc, char * argv[])
                                                         Observables);     CUERR
                 cudaMemcpy(&observables[t*4 + run*N_TEMPS*4 +2], 
                            Observables, sizeof(float)*2,
-                    cudaMemcpyDeviceToHost);                              CUERR
+                           cudaMemcpyDeviceToHost);                       CUERR
                 observables[t*4 + run*N_TEMPS*4] = (float) length;
                 observables[t*4 + run*N_TEMPS*4 +1] = temperature;
                 observables[t*4 + run*N_TEMPS*4 +2] /= length*length;
@@ -404,12 +411,49 @@ int main (int argc, char * argv[])
                 energy += observables[t*4 + run*N_TEMPS*4 + 2]*0.5;
                 magnet += std::fabs(observables[t*4 + run*N_TEMPS*4 + 3]);
                 
-                // Reset spins
-                cudaMemcpy(Spins, spins, sizeof(float)*length*length, 
-                   cudaMemcpyHostToDevice);                               CUERR
-                
+                fs << observables[j*4 + i*N_TEMPS*4] << "\t" 
+                       << observables[j*4 + i*N_TEMPS*4 + 1] 
+                       << "\t" << observables[j*4 + i*N_TEMPS*4 + 2] << "\t" 
+                       << observables[j*4 + i*N_TEMPS*4 + 3] << "\n";
+                       
                 TIMERSTOP(calculating)
                 
+                // Run a few more times to store more data
+                TIMERSTART(additional_data)
+                for(int k=0; k<DATA_PER_RUN; k++)
+                {
+                    cudaMemset(Observables, 0, sizeof(float)*2);          CUERR
+                    for(int f=0; f<RUNS_BEFORE_FLUSH; f++)
+                    {
+                        isis<<<gridDims, BLOCKSIZE>>>(Spins, 
+                                                  length, 
+                                                  deviceStates, 
+                                                  f, 
+                                                  beta);                  CUERR
+                        cudaDeviceSynchronize();                          CUERR
+                    }
+                    
+                    getObservables<<<gridDims, BLOCKSIZE>>>(Spins, 
+                                                        length, 
+                                                        Observables);     CUERR
+                    cudaMemcpy(&observables[t*4 + run*N_TEMPS*4 +2], 
+                               Observables, sizeof(float)*2,
+                               cudaMemcpyDeviceToHost);                   CUERR
+                    observables[t*4 + run*N_TEMPS*4] = (float) length;
+                    observables[t*4 + run*N_TEMPS*4 +1] = temperature;
+                    observables[t*4 + run*N_TEMPS*4 +2] /= length*length;
+                    observables[t*4 + run*N_TEMPS*4 +3] /= length*length;
+                
+                    fs << observables[j*4 + i*N_TEMPS*4] << "\t" 
+                       << observables[j*4 + i*N_TEMPS*4 + 1] 
+                       << "\t" << observables[j*4 + i*N_TEMPS*4 + 2] << "\t" 
+                       << observables[j*4 + i*N_TEMPS*4 + 3] << "\n";
+                    
+                }  
+                TIMERSTOP(additional_data)
+                // Reset spins
+                cudaMemcpy(Spins, spins, sizeof(float)*length*length, 
+                   cudaMemcpyHostToDevice);                               CUERR   
             }
             TIMERSTOP(AVERAGES)
             observables[t*4 + run*N_TEMPS*4 + 2] = energy/RUNS_AVERAGE;
@@ -420,6 +464,7 @@ int main (int argc, char * argv[])
         }
         
     }
+    fs.close();
     std::ofstream myfile;
     if(argc > 1)
         myfile.open(argv[1]);
