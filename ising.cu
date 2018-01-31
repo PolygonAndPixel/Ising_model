@@ -9,7 +9,7 @@
 #include <fstream>
 
 #define LENGTH 1<<10 // 4096, 1<<15 works too, 1024, goes down to 1<<4
-#define BLOCKSQRT 4
+#define BLOCKSQRT 11 // 4
 #define BLOCKSIZE (BLOCKSQRT*BLOCKSQRT)
 // Given n threads
 // Each spin needs 4 neighbours -> padding of 4*2*sqrt(n) for each side
@@ -367,7 +367,7 @@ int main (int argc, char * argv[])
     
     std::ofstream fs;
     if(argc > 2)
-        fs.open(argc[2]);
+        fs.open(argv[2]);
     else
         fs.open("cuda_log");
     fs << "lattice_size\ttemperature\tenergy\tmagnetization\n";
@@ -414,10 +414,10 @@ int main (int argc, char * argv[])
                 energy += observables[t*4 + run*N_TEMPS*4 + 2]*0.5;
                 magnet += std::fabs(observables[t*4 + run*N_TEMPS*4 + 3]);
                 
-                fs << observables[j*4 + i*N_TEMPS*4] << "\t" 
-                       << observables[j*4 + i*N_TEMPS*4 + 1] 
-                       << "\t" << observables[j*4 + i*N_TEMPS*4 + 2] << "\t" 
-                       << observables[j*4 + i*N_TEMPS*4 + 3] << "\n";
+                fs << observables[j*4 + run*N_TEMPS*4] << "\t" 
+                       << observables[j*4 + run*N_TEMPS*4 + 1] 
+                       << "\t" << observables[j*4 + run*N_TEMPS*4 + 2] << "\t" 
+                       << observables[j*4 + run*N_TEMPS*4 + 3] << "\n";
                        
                 TIMERSTOP(calculating)
                 
@@ -447,10 +447,10 @@ int main (int argc, char * argv[])
                     observables[t*4 + run*N_TEMPS*4 +2] /= length*length;
                     observables[t*4 + run*N_TEMPS*4 +3] /= length*length;
                 
-                    fs << observables[j*4 + i*N_TEMPS*4] << "\t" 
-                       << observables[j*4 + i*N_TEMPS*4 + 1] 
-                       << "\t" << observables[j*4 + i*N_TEMPS*4 + 2] << "\t" 
-                       << observables[j*4 + i*N_TEMPS*4 + 3] << "\n";
+                    fs << observables[j*4 + run*N_TEMPS*4] << "\t" 
+                       << observables[j*4 + run*N_TEMPS*4 + 1] 
+                       << "\t" << observables[j*4 + run*N_TEMPS*4 + 2] << "\t" 
+                       << observables[j*4 + run*N_TEMPS*4 + 3] << "\n";
                     
                 }  
                 TIMERSTOP(additional_data)
