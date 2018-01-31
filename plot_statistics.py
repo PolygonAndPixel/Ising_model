@@ -73,7 +73,7 @@ plt.legend(loc="best")
 plt.title("Magnetization means")
 plt.xlabel("Temperature $T$ $[\\frac{J}{k_B}]$")
 plt.ylabel("Magnetization $<M>$")
-plt.show()
+#plt.show()
 
 fig, ax = plt.subplots()  
 for lattice_size in means["Energy"].index.get_level_values(0).unique():
@@ -83,5 +83,45 @@ plt.legend(loc="best")
 plt.title("Energy means")
 plt.xlabel("Temperature $T$ $[\\frac{J}{k_B}]$")
 plt.ylabel("Energy $<E>$")
-plt.show()
+#plt.show()
 
+####################Calculate different values##############
+fig, ax = plt.subplots() 
+# magnetic susceptibility over temperature
+# Magnetic susceptibility = 1/T * (<M^2> - <M>^2)
+magn_susc_lattice = {}
+for key, grp in df.groupby(["Lattice Size"]):
+    magn_susc = []
+    temp_mag = grp.get(["Temperature", "Magnetization"])
+
+    for temp in list(grp["Temperature"]):
+        where = np.where((temp_mag["Temperature"] == temp) == True)
+        all_mag = list(temp_mag["Magnetization"])
+        magnetics = np.asarray([all_mag[idx[0]] for idx in where])
+        magn_susc.append(np.var(magnetics)/temp)
+    
+    plt.plot(x=list(grp["Temperature"]), y=magn_susc, kind="scatter", 
+             label=key, c=next(color))
+             
+    magn_susc_lattice[key] = list(grp["Temperature"])[np.argmax(magn_susc)]
+plt.legend(loc="best")
+plt.title("Magnetic susceptibility")
+plt.xlabel("Temperature $T$ $[\\frac{J}{k_B}]$")
+plt.ylabel("Magnetic susceptibility $\\chi$ $[\\mu/k_B]$")
+
+# T_c is around where magnetic susceptiility gets infinitely big
+# That is saved in magn_susc_lattice already
+fig, ax = plt.subplots() 
+lat = []
+t_c = []
+
+for key in magn_susc_lattice:
+    lat.append(1/(key*key))
+    t_c.append(magn_susc_lattice[key])
+
+plt.plot(x=lat, y=t_c, kind="scatter")
+
+plt.title("Finding the critical temperature")
+plt.xlabel("Lattice size $[1/N^2]$")
+plt.ylabel("Critical temperature $T_c$ $[\\frac{J}{k_B}]$")
+plt.show()
