@@ -374,7 +374,10 @@ int main (int argc, char * argv[])
     for(int run=0; run<RUNS; run++)
     {
         length = LENGTH >> run;
-        
+        grid_x = length/(THREAD_TILE_WIDTH * BLOCKSIZE);
+        grid_y = length/THREAD_TILE_WIDTH;
+        dim3 gridDims(grid_x, grid_y, grid_z);
+    
         for(int t=0; t<N_TEMPS; t++)
         {
             float energy = 0;
