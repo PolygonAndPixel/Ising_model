@@ -26,9 +26,9 @@
 
 #define REGISTER_SIZE 32
 #define THREAD_TILE_WIDTH 4 // Register size is 4*4 + padding (16 values)
-#define N_TEMPS 25 // The number of increases in temperature
-#define DELTA_T 0.1 // The amount of Kelvin to increase for every N_TEMPS
-#define RUNS 7 // Reduce the lattice size by half // 7
+#define N_TEMPS 6 // The number of increases in temperature 25
+#define DELTA_T 0.5 // The amount of Kelvin to increase for every N_TEMPS
+#define RUNS 1 // Reduce the lattice size by half // 7
 #define ITERATIONS 4 // Iterations within a window before moving on 100
 #define OVERALL_ITERATIONS 64 // ((LENGTH * 2 + THREAD_TILE_WIDTH - 1) / THREAD_TILE_WIDTH) // Iterations of all blocks
 #define SLIDING_ITERATIONS 8 // ((LENGTH * 2 + THREAD_TILE_WIDTH + 15) / (THREAD_TILE_WIDTH + 16)) // Sliding window within a block (left to right) for one circle
@@ -323,6 +323,8 @@ int main (int argc, char * argv[])
     float * observables = nullptr;
     // We save later lattice size, temperature, energy, magnetization
     cudaMallocHost(&observables, sizeof(float)*4*RUNS*N_TEMPS);           CUERR
+    float * stats = nullptr;
+    cudaMallocHost(&stats, sizeof(float)*2);                              CUERR
     float * Observables = nullptr;
     cudaMalloc(&Observables, sizeof(float)*2);                            CUERR
     float * spins = nullptr;
@@ -376,8 +378,10 @@ int main (int argc, char * argv[])
         length = LENGTH >> run;
         grid_x = length/(THREAD_TILE_WIDTH * BLOCKSIZE);
         grid_y = length/THREAD_TILE_WIDTH;
+        if(grid_x < 1) grid_x = 1;
         dim3 gridDims(grid_x, grid_y, grid_z);
-    
+        printf("Using (%d, %d, %d) blocks and %d threads per block\n", 
+        grid_x, grid_y, grid_z, BLOCKSIZE);
         for(int t=0; t<N_TEMPS; t++)
         {
             float energy = 0;
@@ -408,16 +412,15 @@ int main (int argc, char * argv[])
                            cudaMemcpyDeviceToHost);                       CUERR
                 observables[t*4 + run*N_TEMPS*4] = (float) length;
                 observables[t*4 + run*N_TEMPS*4 +1] = temperature;
-                observables[t*4 + run*N_TEMPS*4 +2] /= length*length;
+                observables[t*4 + run*N_TEMPS*4 +2] /= length*length*2;
                 observables[t*4 + run*N_TEMPS*4 +3] /= length*length;
                 
-                energy += observables[t*4 + run*N_TEMPS*4 + 2]*0.5;
+                energy += observables[t*4 + run*N_TEMPS*4 + 2];
                 magnet += std::fabs(observables[t*4 + run*N_TEMPS*4 + 3]);
                 
-                fs << observables[j*4 + run*N_TEMPS*4] << "\t" 
-                       << observables[j*4 + run*N_TEMPS*4 + 1] 
-                       << "\t" << observables[j*4 + run*N_TEMPS*4 + 2] << "\t" 
-                       << observables[j*4 + run*N_TEMPS*4 + 3] << "\n";
+                fs << length << "\t" << temperature
+                   << "\t" << observables[j*4 + run*N_TEMPS*4 + 2] << "\t" 
+                   << observables[j*4 + run*N_TEMPS*4 + 3] << "\n";
                        
                 TIMERSTOP(calculating)
                 
@@ -439,18 +442,15 @@ int main (int argc, char * argv[])
                     getObservables<<<gridDims, BLOCKSIZE>>>(Spins, 
                                                         length, 
                                                         Observables);     CUERR
-                    cudaMemcpy(&observables[t*4 + run*N_TEMPS*4 +2], 
+                    cudaMemcpy(stats, 
                                Observables, sizeof(float)*2,
                                cudaMemcpyDeviceToHost);                   CUERR
-                    observables[t*4 + run*N_TEMPS*4] = (float) length;
-                    observables[t*4 + run*N_TEMPS*4 +1] = temperature;
-                    observables[t*4 + run*N_TEMPS*4 +2] /= length*length;
-                    observables[t*4 + run*N_TEMPS*4 +3] /= length*length;
+                    stats[0] /= length*length*2;
+                    stats[1] /= length*length;
                 
-                    fs << observables[j*4 + run*N_TEMPS*4] << "\t" 
-                       << observables[j*4 + run*N_TEMPS*4 + 1] 
-                       << "\t" << observables[j*4 + run*N_TEMPS*4 + 2] << "\t" 
-                       << observables[j*4 + run*N_TEMPS*4 + 3] << "\n";
+                    fs << length << "\t" << temperature
+                       << "\t" << stats[0] << "\t" 
+                       << stats[1] << "\n";
                     
                 }  
                 TIMERSTOP(additional_data)
