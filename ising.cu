@@ -8,8 +8,8 @@
 #include <iostream>
 #include <fstream>
 
-#define LENGTH 1<<10 // 4096, 1<<15 works too, 1024, goes down to 1<<4
-#define BLOCKSQRT 11 // 4
+#define LENGTH 1<<10 // 4096, 1<<15 works too, 1024 gives weird results
+#define BLOCKSQRT 11 // 
 #define BLOCKSIZE (BLOCKSQRT*BLOCKSQRT)
 // Given n threads
 // Each spin needs 4 neighbours -> padding of 4*2*sqrt(n) for each side
@@ -26,9 +26,9 @@
 
 #define REGISTER_SIZE 32
 #define THREAD_TILE_WIDTH 4 // Register size is 4*4 + padding (16 values)
-#define N_TEMPS 6 // The number of increases in temperature 25
-#define DELTA_T 0.5 // The amount of Kelvin to increase for every N_TEMPS
-#define RUNS 1 // Reduce the lattice size by half // 7
+#define N_TEMPS 25 // The number of increases in temperature 
+#define DELTA_T 0.1 // The amount of Kelvin to increase for every N_TEMPS
+#define RUNS 6 // Reduce the lattice size by half // 7
 #define ITERATIONS 4 // Iterations within a window before moving on 100
 #define OVERALL_ITERATIONS 64 // ((LENGTH * 2 + THREAD_TILE_WIDTH - 1) / THREAD_TILE_WIDTH) // Iterations of all blocks
 #define SLIDING_ITERATIONS 8 // ((LENGTH * 2 + THREAD_TILE_WIDTH + 15) / (THREAD_TILE_WIDTH + 16)) // Sliding window within a block (left to right) for one circle
@@ -417,11 +417,7 @@ int main (int argc, char * argv[])
                 
                 energy += observables[t*4 + run*N_TEMPS*4 + 2];
                 magnet += std::fabs(observables[t*4 + run*N_TEMPS*4 + 3]);
-                
-                fs << length << "\t" << temperature
-                   << "\t" << observables[j*4 + run*N_TEMPS*4 + 2] << "\t" 
-                   << observables[j*4 + run*N_TEMPS*4 + 3] << "\n";
-                       
+        
                 TIMERSTOP(calculating)
                 
                 // Run a few more times to store more data
