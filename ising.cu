@@ -289,10 +289,23 @@ __global__ void getObservables(float * spins, int length, float * observables)
         for(int col=idx_x_global; col<length; col+=blockDim.x*gridDim.x)
         {
             magnetization += spins[col + row*length];
+            /*
+            my_energy -= ( spins[col + row*length] 
+                         * spins[(col+1)%length + row*length]
+                         + spins[col + row*length] 
+                         * spins[col + ((row+1)%length)*length]
+                         + spins[col + row*length] 
+                         * spins[(col-1)%length + row*length]
+                         + spins[col + row*length] 
+                         * spins[col + ((row-1)%length)*length]);
+            */
+            // Simplified
             my_energy -= ( spins[(col+1)%length + row*length]
                          + spins[col + ((row+1)%length)*length]
                          + spins[(col-1)%length + row*length]
-                         + spins[col + ((row-1)%length)*length]); 
+                         + spins[col + ((row-1)%length)*length]) 
+                         * spins[col + row*length] ; 
+                         
         }
     }
     atomicAdd(observables, my_energy);
