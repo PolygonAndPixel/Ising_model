@@ -12,8 +12,6 @@ energy = []
 lattice = []
 first = True
 
-color = cycle(cm.rainbow(np.linspace(0,1,6)))
-
 if(len(sys.argv) == 2):
     with open(sys.argv[1], "r") as f:
         
@@ -50,11 +48,12 @@ else:
                     else:
                         energy.append(-1*en)
                     mag.append(np.abs(float(values[3])))
-        
+
 dataset = list(zip(temp, energy, mag, lattice))       
 df = pd.DataFrame(data = dataset, 
                   columns=["Temperature", "Energy", 
                            "Magnetization", "Lattice Size"])
+color = cycle(cm.rainbow(np.linspace(0,1,len(df["Lattice Size"].unique()))))
 ####################Total values###############                           
 fig, ax = plt.subplots()
 # Plot energy

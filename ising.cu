@@ -8,7 +8,7 @@
 #include <iostream>
 #include <fstream>
 
-#define LENGTH 1<<4 // 4096, 1<<15 works too, 1024 gives weird results
+#define LENGTH 1<<6 // 4096, 1<<15 works too, 1024 gives weird results
 #define BLOCKSQRT 11 // 
 #define BLOCKSIZE (BLOCKSQRT*BLOCKSQRT)
 // Given n threads
@@ -28,7 +28,7 @@
 #define THREAD_TILE_WIDTH 4 // Register size is 4*4 + padding (16 values)
 #define N_TEMPS 26 // The number of increases in temperature // default 26
 #define DELTA_T 0.1 // The amount of Kelvin to increase for every N_TEMPS // default 0.1
-#define RUNS 1 // Reduce the lattice size by half // 7
+#define RUNS 3 // Reduce the lattice size by half // 7
 #define ITERATIONS 4 // Iterations within a window before moving on 100 // default 4
 #define OVERALL_ITERATIONS 128 // ((LENGTH * 2 + THREAD_TILE_WIDTH - 1) / THREAD_TILE_WIDTH) // Iterations of all blocks // default 128
 #define SLIDING_ITERATIONS 8 // ((LENGTH * 2 + THREAD_TILE_WIDTH + 15) / (THREAD_TILE_WIDTH + 16)) // Sliding window within a block (left to right) for one circle // default 8
@@ -280,11 +280,11 @@ __global__ void isis(float * spins, int length, curandState* globalState,
 __global__ void getObservables(float * spins, int length, float * observables)
 {
     int idx_x_global = threadIdx.x + blockDim.x * blockIdx.x;
-    int idx_y_global = threadIdx.y + blockDim.y * blockIdx.y;
+    int idx_y_global = blockIdx.y; // The y-dimension of a block is 1.
     float my_energy = 0;
     float magnetization = 0;
     
-    for(int row=idx_y_global; row<length; row+=blockDim.y*gridDim.y)
+    for(int row=idx_y_global; row<length; row+=gridDim.y)
     {
         for(int col=idx_x_global; col<length; col+=blockDim.x*gridDim.x)
         {
@@ -300,10 +300,14 @@ __global__ void getObservables(float * spins, int length, float * observables)
                          * spins[col + ((row-1)%length)*length]);
             */
             // Simplified
+            int left = (col-1)%length;
+            if(below < 0) below += length;
+            int below = (row-1)%length;
+            if(left < 0) left += length;
             my_energy -= ( spins[(col+1)%length + row*length]
                          + spins[col + ((row+1)%length)*length]
-                         + spins[(col-1)%length + row*length]
-                         + spins[col + ((row-1)%length)*length]) 
+                         + spins[left + row*length]
+                         + spins[col + below*length]) 
                          * spins[col + row*length] ; 
                          
         }
