@@ -8,7 +8,7 @@
 #include <iostream>
 #include <fstream>
 
-#define LENGTH 1<<6 // 4096, 1<<15 works too, 1024 gives weird results
+#define LENGTH 1<<10 // 4096, 1<<15 works too, 1024 gives weird results
 #define BLOCKSQRT 11 // 
 #define BLOCKSIZE (BLOCKSQRT*BLOCKSQRT)
 // Given n threads
@@ -28,7 +28,7 @@
 #define THREAD_TILE_WIDTH 4 // Register size is 4*4 + padding (16 values)
 #define N_TEMPS 26 // The number of increases in temperature // default 26
 #define DELTA_T 0.1 // The amount of Kelvin to increase for every N_TEMPS // default 0.1
-#define RUNS 3 // Reduce the lattice size by half // 7
+#define RUNS 6 // Reduce the lattice size by half // 7
 #define ITERATIONS 4 // Iterations within a window before moving on 100 // default 4
 #define OVERALL_ITERATIONS 128 // ((LENGTH * 2 + THREAD_TILE_WIDTH - 1) / THREAD_TILE_WIDTH) // Iterations of all blocks // default 128
 #define SLIDING_ITERATIONS 8 // ((LENGTH * 2 + THREAD_TILE_WIDTH + 15) / (THREAD_TILE_WIDTH + 16)) // Sliding window within a block (left to right) for one circle // default 8
@@ -301,9 +301,9 @@ __global__ void getObservables(float * spins, int length, float * observables)
             */
             // Simplified
             int left = (col-1)%length;
-            if(below < 0) below += length;
             int below = (row-1)%length;
             if(left < 0) left += length;
+            if(below < 0) below += length;
             my_energy -= ( spins[(col+1)%length + row*length]
                          + spins[col + ((row+1)%length)*length]
                          + spins[left + row*length]
