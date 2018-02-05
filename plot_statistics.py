@@ -14,19 +14,42 @@ first = True
 
 color = cycle(cm.rainbow(np.linspace(0,1,6)))
 
-
-with open(sys.argv[1], "r") as f:
-    
-    for line in f:
-        if first:
-            first = False
-            continue
-        values = line.split()
-        if len(values) > 1:
-            lattice.append(int(values[0]))
-            temp.append(float(values[1]))
-            energy.append(float(values[2]))
-            mag.append(float(values[3]))
+if(len(sys.argv) == 2):
+    with open(sys.argv[1], "r") as f:
+        
+        for line in f:
+            if first:
+                first = False
+                continue
+            values = line.split()
+            if len(values) > 1:
+                lattice.append(int(values[0]))
+                temp.append(float(values[1]))
+                en = float(values[2])
+                if en < 0:
+                    energy.append(en)
+                else:
+                    energy.append(-1*en)
+                mag.append(np.abs(float(values[3])))
+else:
+    filenames = ["32_log", "64_log", "128_log", "256_log", "512_log", "1024_log"]
+    for filename in filenames:
+        first = True
+        with open(filename, "r") as f:
+            for line in f:
+                if first:
+                    first = False
+                    continue
+                values = line.split()
+                if len(values) > 1:
+                    lattice.append(int(values[0]))
+                    temp.append(float(values[1]))
+                    en = float(values[2])
+                    if en < 0:
+                        energy.append(en)
+                    else:
+                        energy.append(-1*en)
+                    mag.append(np.abs(float(values[3])))
         
 dataset = list(zip(temp, energy, mag, lattice))       
 df = pd.DataFrame(data = dataset, 
@@ -103,7 +126,7 @@ for key, grp in df.groupby(["Lattice Size"]):
     plt.scatter(x=list(grp["Temperature"].unique()), y=magn_susc,  
              label=key, c=next(color))
              
-    magn_susc_lattice[key] = list(grp["Temperature"])[np.argmax(magn_susc)]
+    magn_susc_lattice[key] = list(grp["Temperature"].unique())[np.argmax(magn_susc)]
 plt.legend(loc="best")
 plt.title("Magnetic susceptibility")
 plt.xlabel("Temperature $T$ $[J/k_B]$")

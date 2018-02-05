@@ -29,7 +29,8 @@ print("Usage:\n[filename]: Create data for a plot and save it in [filename]")
 print("[int] [int] [int] [float]: specify grid_size and number "
        "of steps to simulate and number of MC steps per step for an "
        "animation and the temperature.\n")
-def update_spin(beta, d, n):
+def update_spin(beta, d, n, dump=False):
+    dd = []
     for k in range(d):
         # Take random spin
         x_c, y_c = np.random.randint(n, size=(2))
@@ -47,11 +48,26 @@ def update_spin(beta, d, n):
         else:
             if np.random.uniform() < np.exp(-beta*(energy*2)):
                 spins[x_c][y_c] *= (-1) 
+        if k%100 == 0 and dump:
+            n_pos = float(np.sum(spins)) / (n*n)
+            dd.append(n_pos)
+          #  n_pos = np.sum([x==1 for x in spins])
+          #  dd.append(n_pos / (n*n))
+    with open("dump", "a") as f:
+        for k in range(d):   
+            f.write("{} {}\n".format( k*100 ,dd[k]))
                 
+if len(sys.argv) == 1:
+    temperature = 2.26915
+    n=10
+    beta = 1.0/temperature   
+    spins = np.random.randint(2, size=(n,n))*2 - 1             
+    update_spin(beta, 20000000, n, True)                
+
 if len(sys.argv) == 2:
 ###############################For Plots#######################################
     n = 256
-    d = 1000000
+    d = 100000
     # Generate a grid = coordinates of the beads
     x, y = np.mgrid[range(n), range(n)]
     print(np.shape(x))
@@ -82,6 +98,7 @@ if len(sys.argv) == 2:
             magnet += np.abs(float(np.sum(spins)) / (n*n))
             
         global_energy /= avg
+        
         magnet /= avg
         with open(filename, 'a') as f:
             f.write("{}\t{}\t{}\t{}\t\n".format(n, 
