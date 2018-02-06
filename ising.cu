@@ -8,7 +8,7 @@
 #include <iostream>
 #include <fstream>
 
-#define LENGTH 1<<10 // 4096, 1<<15 works too, 1024 gives weird results
+#define LENGTH 1<<8 // 4096, 1<<15 works too, 1024 gives weird results
 #define BLOCKSQRT 11 // 
 #define BLOCKSIZE (BLOCKSQRT*BLOCKSQRT)
 // Given n threads
@@ -28,15 +28,15 @@
 #define THREAD_TILE_WIDTH 4 // Register size is 4*4 + padding (16 values)
 #define N_TEMPS 26 // The number of increases in temperature // default 26
 #define DELTA_T 0.1 // The amount of Kelvin to increase for every N_TEMPS // default 0.1
-#define RUNS 6 // Reduce the lattice size by half // 7
+#define RUNS 5 // Reduce the lattice size by half // 7
 #define ITERATIONS 4 // Iterations within a window before moving on 100 // default 4
-#define OVERALL_ITERATIONS 128 // ((LENGTH * 2 + THREAD_TILE_WIDTH - 1) / THREAD_TILE_WIDTH) // Iterations of all blocks // default 128
-#define SLIDING_ITERATIONS 8 // ((LENGTH * 2 + THREAD_TILE_WIDTH + 15) / (THREAD_TILE_WIDTH + 16)) // Sliding window within a block (left to right) for one circle // default 8
+#define OVERALL_ITERATIONS 128 // ((LENGTH * 2 + THREAD_TILE_WIDTH - 1) / THREAD_TILE_WIDTH) // Iterations of all blocks // default 128, is multiplied with length*length/2 later
+#define SLIDING_ITERATIONS 32 // ((LENGTH * 2 + THREAD_TILE_WIDTH + 15) / (THREAD_TILE_WIDTH + 16)) // Sliding window within a block (left to right) for one circle // default 8
 // the stride of the windows is THREAD_TILE_WIDTH/2
 #define RUNS_AVERAGE 1 // Runs to calculate the average (just to be sure) // default 1
-#define DATA_PER_RUN 1000 // Number of times where the current state should be flushed to disk // default 100, max 131072
+#define DATA_PER_RUN 100 // Number of times where the current state should be flushed to disk // default 100, max 131072
 #define RUNS_BEFORE_FLUSH 100 // Number of iterations between two flushes // default 100
-#define DUMP_IMG -1 // Set to -1 if you don't want any images
+#define DUMP_IMG 0 // Set to 0 if you don't want any images
 #define MC 0 // Use this for data on xmgrace
 
 __device__ void shuffle_spins(float * register_spins, bool black)
@@ -449,6 +449,7 @@ int main (int argc, char * argv[])
                 // Run a few more times to store more data
                 TIMERSTART(additional_data)
                 cudaMemset(Stats, 0, sizeof(float)*2*DATA_PER_RUN);       CUERR
+                printf("-");
                 for(int k=0; k<DATA_PER_RUN; k++)
                 {
                     for(int f=0; f<RUNS_BEFORE_FLUSH; f++)
@@ -460,12 +461,16 @@ int main (int argc, char * argv[])
                                                   beta);                  CUERR
                         cudaDeviceSynchronize();                          CUERR
                     }
+                    
                     getObservables<<<gridDims, BLOCKSIZE>>>(Spins, 
                                                             length, 
                                                             &Stats[k*2]); CUERR
                    
-                   ///////     Dump Image
-                   if(DUMP_IMG > 0)
+                    if(k%4 == 0) {printf("\r (>^.^)> %d     ", k); fflush(stdout);}
+                    else if(k%5 == 0) {printf("\r (>°.°)> ----"); fflush(stdout);}
+                    
+                    ///////     Dump Image
+                    if(DUMP_IMG > 0)
                     {
                         if(k%DUMP_IMG == 0 && k > 0)
                         {
@@ -495,7 +500,6 @@ int main (int argc, char * argv[])
                     {
                         stats[k*2] /= length*length*2;
                         stats[1 + k*2] /= length*length;
-                        int mc = (k+1)*RUNS_BEFORE_FLUSH;
                         fs << length << "\t" << temperature
                            << "\t" << stats[k*2] << "\t" 
                            << stats[1 + k*2] << "\n";
