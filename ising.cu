@@ -8,7 +8,7 @@
 #include <iostream>
 #include <fstream>
 
-#define LENGTH 1<<8 // 4096, 1<<15 works too, 1024 gives weird results
+#define LENGTH 1<<4 // 4096, 1<<15 works too, 1024 gives weird results
 #define BLOCKSQRT 11 // 
 #define BLOCKSIZE (BLOCKSQRT*BLOCKSQRT)
 // Given n threads
@@ -26,19 +26,19 @@
 
 #define REGISTER_SIZE 32
 #define THREAD_TILE_WIDTH 4 // Register size is 4*4 + padding (16 values)
-#define N_TEMPS 26 // The number of increases in temperature // default 26
+#define N_TEMPS 1 // The number of increases in temperature // default 26
 #define DELTA_T 0.1 // The amount of Kelvin to increase for every N_TEMPS // default 0.1
-#define RUNS 5 // Reduce the lattice size by half // 7
+#define RUNS 1 // Reduce the lattice size by half // 7
 #define ITERATIONS 4 // Iterations within a window before moving on 100 // default 4
 #define OVERALL_ITERATIONS 128 // ((LENGTH * 2 + THREAD_TILE_WIDTH - 1) / THREAD_TILE_WIDTH) // Iterations of all blocks // default 128, is multiplied with length*length/2 later
 #define SLIDING_ITERATIONS 32 // ((LENGTH * 2 + THREAD_TILE_WIDTH + 15) / (THREAD_TILE_WIDTH + 16)) // Sliding window within a block (left to right) for one circle // default 8
 // the stride of the windows is THREAD_TILE_WIDTH/2
 #define RUNS_AVERAGE 1 // Runs to calculate the average (just to be sure) // default 1
-#define DATA_PER_RUN 100 // Number of times where the current state should be flushed to disk // default 100, max 131072
-#define RUNS_BEFORE_FLUSH 100 // Number of iterations between two flushes // default 100
+#define DATA_PER_RUN 500 // Number of times where the current state should be flushed to disk // default 100, max 131072
+#define RUNS_BEFORE_FLUSH 1000000 // Number of iterations between two flushes // default 100
 #define DUMP_IMG 0 // Set to 0 if you don't want any images
 #define MC 0 // Use this for data on xmgrace
-
+#define CRITICAL 1 // Just use the critical temperature
 __device__ void shuffle_spins(float * register_spins, bool black)
 {
     // Shuffle up right hand side
@@ -413,7 +413,7 @@ int main (int argc, char * argv[])
             float energy = 0;
             float magnet = 0;
             float temperature = DELTA_T * t + 1; 
-            if(MC) temperature = 2.26915;
+            if(MC || CRITICAL) temperature = 2.26915;
             float beta = 1.0/temperature;
             TIMERSTART(AVERAGES)
             for(int j=0; j<RUNS_AVERAGE; j++)
